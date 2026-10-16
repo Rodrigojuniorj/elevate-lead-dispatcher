@@ -17,4 +17,11 @@
 
 - Produtos podem participar de vários funis por uma associação explícita e ativável. Um lead referencia uma associação válida entre produto e funil, além de origem e status atual. Afiliado é opcional.
 - O status inicial é `NEW`; eventos de status são imutáveis para auditoria.
-- A criação futura de leads exige uma chave de idempotência única e valida a compatibilidade entre produto e funil.
+- A criação de leads exige uma chave de idempotência única e valida a compatibilidade entre produto e funil.
+
+## Distribuição
+
+- Cada novo lead possui um único trabalho de distribuição criado na mesma transação do recebimento.
+- Uma repetição idempotente não cria novo trabalho nem nova distribuição.
+- Apenas call centers ativos e habilitados para distribuição são elegíveis. Os pesos são inteiros positivos e relativos; centros inativos são excluídos da proporção.
+- Cada lead possui no máximo uma distribuição, registrada com estratégia, pesos e instante da decisão.
