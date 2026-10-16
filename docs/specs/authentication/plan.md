@@ -1,0 +1,3 @@
+# Plano técnico
+
+Usar Prisma/PostgreSQL para `User` e `CallCenter`, Argon2id para senhas, JWT de curta duração e guards NestJS para autenticação, roles e acesso por call center. O domínio fica em `src/modules/auth`, Prisma em `src/providers/prisma` e os guards/decorators/regras compartilhadas em `src/common`. O orquestrador `prisma/seed.mjs` executa seeds idempotentes isoladas em `prisma/seeds/`: um ADMIN inicial e os call centers A, B e C. Os pesos iniciais de 50%, 30% e 20% serão persistidos na feature de dispatcher. Swagger/OpenAPI é configurado no bootstrap em `/api/docs`; cada DTO de entrada, saída e erro declara seu schema com decorators. A interface possui login e shell autenticado; gestão de usuários, call centers e leads permanece fora deste incremento.

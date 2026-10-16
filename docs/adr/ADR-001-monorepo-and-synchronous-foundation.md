@@ -14,7 +14,7 @@ O repositório evoluirá para incluir frontend, API, banco relacional, distribui
 2. Usar React com Vite no frontend e NestJS com TypeScript no backend.
 3. Iniciar o fluxo de negócio de forma síncrona via HTTP e PostgreSQL.
 4. Não introduzir mensageria na fundação. Essa necessidade poderá ser reavaliada depois que `POST /api/leads`, idempotência, distribuição e testes de concorrência estiverem implementados.
-5. Manter contratos HTTP e documentação de decisões em arquivos versionados, respectivamente em `docs/specs/` e `docs/adr/`.
+5. Manter especificações por feature em `docs/specs/` e decisões arquiteturais em `docs/adr/`.
 
 ## Consequências
 
