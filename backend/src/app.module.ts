@@ -4,6 +4,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AppController } from './app.controller.js';
 import { AuthModule } from './modules/auth/auth.module.js';
+import { LeadsModule } from './modules/leads/leads.module.js';
 import { PrismaModule } from './providers/prisma/prisma.module.js';
 import { envSchema } from './providers/config/env.schema.js';
 
@@ -21,6 +22,7 @@ import { envSchema } from './providers/config/env.schema.js';
     ]),
     PrismaModule,
     AuthModule,
+    LeadsModule,
   ],
   controllers: [AppController],
   providers: [
