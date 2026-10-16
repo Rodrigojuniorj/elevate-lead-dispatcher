@@ -29,6 +29,16 @@ enum LeadStatusEventSource {
   MANUAL
 }
 
+enum DistributionJobStatus {
+  PENDING
+  ENQUEUED
+  COMPLETED
+}
+
+enum DistributionStrategy {
+  SMOOTH_WEIGHTED_ROUND_ROBIN
+}
+
 model User {
   id           String      @id @default(uuid()) @db.Uuid
   name         String
@@ -47,13 +57,15 @@ model User {
 }
 
 model CallCenter {
-  id        String   @id @default(uuid()) @db.Uuid
-  name      String   @unique
-  code      String   @unique
-  isActive  Boolean  @default(true) @map("is_active")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-  users     User[]
+  id             String                    @id @default(uuid()) @db.Uuid
+  name           String                    @unique
+  code           String                    @unique
+  isActive       Boolean                   @default(true) @map("is_active")
+  createdAt      DateTime                  @default(now()) @map("created_at")
+  updatedAt      DateTime                  @updatedAt @map("updated_at")
+  users          User[]
+  dispatchConfig CallCenterDispatchConfig?
+  distributions  Distribution[]
 
   @@map("call_centers")
 }
@@ -132,6 +144,8 @@ model Lead {
   funnelProduct  FunnelProduct     @relation(fields: [funnelProductId], references: [id], onDelete: Restrict)
   affiliate      Affiliate?        @relation(fields: [affiliateId], references: [id], onDelete: Restrict)
   statusHistory  LeadStatusHistory[]
+  distributionJob DistributionJob?
+  distribution    Distribution?
 
   @@index([createdAt])
   @@index([status, createdAt])
@@ -151,4 +165,50 @@ model LeadStatusHistory {
 
   @@index([leadId, occurredAt])
   @@map("lead_status_history")
+}
+
+model CallCenterDispatchConfig {
+  id            String     @id @default(uuid()) @db.Uuid
+  callCenterId  String     @unique @map("call_center_id") @db.Uuid
+  weight        Int
+  currentWeight Int        @default(0) @map("current_weight")
+  isEnabled     Boolean    @default(true) @map("is_enabled")
+  createdAt     DateTime   @default(now()) @map("created_at")
+  updatedAt     DateTime   @updatedAt @map("updated_at")
+  callCenter    CallCenter @relation(fields: [callCenterId], references: [id], onDelete: Restrict)
+
+  @@index([isEnabled])
+  @@map("call_center_dispatch_configs")
+}
+
+model DistributionJob {
+  id            String                @id @default(uuid()) @db.Uuid
+  leadId        String                @unique @map("lead_id") @db.Uuid
+  status        DistributionJobStatus @default(PENDING)
+  attempts      Int                   @default(0)
+  lastError     String?               @map("last_error")
+  nextAttemptAt DateTime?             @map("next_attempt_at")
+  publishedAt   DateTime?             @map("published_at")
+  completedAt   DateTime?             @map("completed_at")
+  createdAt     DateTime              @default(now()) @map("created_at")
+  updatedAt     DateTime              @updatedAt @map("updated_at")
+  lead          Lead                  @relation(fields: [leadId], references: [id], onDelete: Restrict)
+
+  @@index([status, publishedAt])
+  @@map("distribution_jobs")
+}
+
+model Distribution {
+  id            String               @id @default(uuid()) @db.Uuid
+  leadId        String               @unique @map("lead_id") @db.Uuid
+  callCenterId  String               @map("call_center_id") @db.Uuid
+  strategy      DistributionStrategy
+  appliedWeight Int                  @map("applied_weight")
+  totalWeight   Int                  @map("total_weight")
+  assignedAt    DateTime             @default(now()) @map("assigned_at")
+  lead          Lead                 @relation(fields: [leadId], references: [id], onDelete: Restrict)
+  callCenter    CallCenter           @relation(fields: [callCenterId], references: [id], onDelete: Restrict)
+
+  @@index([callCenterId, assignedAt])
+  @@map("distributions")
 }

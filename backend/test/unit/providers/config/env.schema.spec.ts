@@ -5,6 +5,7 @@ describe('envSchema', () => {
   it('applies safe defaults to optional environment values', () => {
     const environment = envSchema.parse({
       DATABASE_URL: 'postgresql://user:password@localhost:5432/database',
+      REDIS_URL: 'redis://localhost:6379/0',
       JWT_ACCESS_SECRET: 'a-secure-jwt-secret-with-thirty-two-characters',
     });
 

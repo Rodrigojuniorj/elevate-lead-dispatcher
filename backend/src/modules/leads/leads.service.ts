@@ -1,6 +1,7 @@
 import { ConflictException, Injectable, UnprocessableEntityException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../providers/prisma/prisma.service.js';
+import { DistributionOutboxPublisher } from '../dispatcher/distribution-outbox.publisher.js';
 import {
   createLeadRequestHash,
   idempotencyRequestMatches,
@@ -14,7 +15,10 @@ export type CreateLeadResult = { created: boolean; leadId: string };
 
 @Injectable()
 export class LeadsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly distributionOutboxPublisher: DistributionOutboxPublisher,
+  ) {}
 
   async create(dto: CreateLeadDto, idempotencyKey: string): Promise<CreateLeadResult> {
     const input = normalizeLeadInput(dto);
@@ -75,11 +79,15 @@ export class LeadsService {
                 eventSource: 'SYSTEM',
               },
             },
+            distributionJob: {
+              create: {},
+            },
           },
-          select: { id: true },
+          select: { id: true, distributionJob: { select: { id: true } } },
         });
       });
 
+      this.distributionOutboxPublisher.publish(lead.distributionJob!.id);
       return { created: true, leadId: lead.id };
     } catch (error) {
       if (!isIdempotencyKeyConflict(error)) throw error;

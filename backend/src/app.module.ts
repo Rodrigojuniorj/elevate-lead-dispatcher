@@ -4,8 +4,10 @@ import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AppController } from './app.controller.js';
 import { AuthModule } from './modules/auth/auth.module.js';
+import { DispatcherModule } from './modules/dispatcher/dispatcher.module.js';
 import { LeadsModule } from './modules/leads/leads.module.js';
 import { PrismaModule } from './providers/prisma/prisma.module.js';
+import { QueueModule } from './providers/queue/queue.module.js';
 import { envSchema } from './providers/config/env.schema.js';
 
 @Module({
@@ -21,7 +23,9 @@ import { envSchema } from './providers/config/env.schema.js';
       },
     ]),
     PrismaModule,
+    QueueModule,
     AuthModule,
+    DispatcherModule,
     LeadsModule,
   ],
   controllers: [AppController],
