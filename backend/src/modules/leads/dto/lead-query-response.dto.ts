@@ -15,6 +15,7 @@ export class LeadListItemDto {
   @ApiProperty({ format: 'date-time' }) createdAt!: Date;
   @ApiPropertyOptional({ nullable: true }) callCenterCode!: string | null;
   @ApiPropertyOptional({ format: 'date-time', nullable: true }) assignedAt!: Date | null;
+  @ApiProperty({ enum: LeadStatus, isArray: true }) allowedNextStatuses!: LeadStatus[];
 }
 
 export class LeadStatusHistoryItemDto {

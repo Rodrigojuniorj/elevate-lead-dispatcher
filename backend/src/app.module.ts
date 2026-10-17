@@ -7,6 +7,7 @@ import { JwtAuthGuard } from './common/auth/guards/jwt-auth.guard.js';
 import { RolesGuard } from './common/auth/guards/roles.guard.js';
 import { AuthModule } from './modules/auth/auth.module.js';
 import { DispatcherModule } from './modules/dispatcher/dispatcher.module.js';
+import { DashboardModule } from './modules/dashboard/dashboard.module.js';
 import { LeadsModule } from './modules/leads/leads.module.js';
 import { PrismaModule } from './providers/prisma/prisma.module.js';
 import { QueueModule } from './providers/queue/queue.module.js';
@@ -28,6 +29,7 @@ import { envSchema } from './providers/config/env.schema.js';
     QueueModule,
     AuthModule,
     DispatcherModule,
+    DashboardModule,
     LeadsModule,
   ],
   controllers: [AppController],

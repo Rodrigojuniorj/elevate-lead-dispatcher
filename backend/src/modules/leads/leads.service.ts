@@ -1,12 +1,10 @@
 import {
-  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { LeadStatusEventSource, Prisma, UserRole } from '@prisma/client';
-import { CallCenterAccessService } from '../../common/authorization/call-center-access.service.js';
+import { LeadStatusEventSource, Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../../common/auth/interfaces/authenticated-user.interface.js';
 import { paginate } from '../../common/pagination/pagination.helper.js';
 import { PrismaService } from '../../providers/prisma/prisma.service.js';
@@ -24,7 +22,9 @@ import type { UpdateLeadStatusDto } from './dto/update-lead-status.dto.js';
 import {
   isLeadStatusTransitionAllowed,
   isLeadStatusUnchanged,
+  getAllowedNextLeadStatuses,
 } from './domain/lead-status-transition.policy.js';
+import { LeadFilterService } from './lead-filter.service.js';
 
 export type CreateLeadResult = { created: boolean; leadId: string };
 
@@ -33,7 +33,7 @@ export class LeadsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly distributionOutboxPublisher: DistributionOutboxPublisher,
-    private readonly callCenterAccessService: CallCenterAccessService,
+    private readonly leadFilterService: LeadFilterService,
   ) {}
 
   async create(
@@ -127,52 +127,7 @@ export class LeadsService {
   }
 
   async list(user: AuthenticatedUser, query: ListLeadsQueryDto) {
-    this.assertDateRange(query);
-    const scope = await this.getScope(user, query.callCenterCode);
-    const filters: Prisma.LeadWhereInput[] = [scope];
-
-    if (query.from || query.to)
-      filters.push({
-        createdAt: {
-          ...(query.from ? { gte: new Date(query.from) } : {}),
-          ...(query.to ? { lt: new Date(query.to) } : {}),
-        },
-      });
-    if (query.status) filters.push({ status: query.status });
-    if (query.source)
-      filters.push({
-        source: { equals: query.source.trim(), mode: 'insensitive' },
-      });
-    if (query.productCode)
-      filters.push({
-        funnelProduct: {
-          product: {
-            code: { equals: query.productCode.trim(), mode: 'insensitive' },
-          },
-        },
-      });
-    if (query.funnelCode)
-      filters.push({
-        funnelProduct: {
-          funnel: {
-            code: { equals: query.funnelCode.trim(), mode: 'insensitive' },
-          },
-        },
-      });
-    if (user.role === UserRole.ADMIN && query.callCenterCode)
-      filters.push({
-        distribution: {
-          is: {
-            callCenter: {
-              code: {
-                equals: query.callCenterCode.trim(),
-                mode: 'insensitive',
-              },
-            },
-          },
-        },
-      });
-    const where = { AND: filters };
+    const where = await this.leadFilterService.build(user, query);
     return paginate(
       query,
       async (skip, take) =>
@@ -190,7 +145,7 @@ export class LeadsService {
   }
 
   async findOne(user: AuthenticatedUser, leadId: string) {
-    const scope = await this.getScope(user);
+    const scope = await this.leadFilterService.build(user, {});
     const lead = await this.prisma.lead.findFirst({
       where: { AND: [scope, { id: leadId }] },
       include: {
@@ -218,7 +173,7 @@ export class LeadsService {
     leadId: string,
     dto: UpdateLeadStatusDto,
   ) {
-    const scope = await this.getScope(user);
+    const scope = await this.leadFilterService.build(user, {});
     return this.prisma.$transaction(async (transaction) => {
       const lead = await transaction.lead.findFirst({
         where: { AND: [scope, { id: leadId }] },
@@ -272,37 +227,6 @@ export class LeadsService {
     return { created: false, leadId: existingLead.id };
   }
 
-  private async getScope(
-    user: AuthenticatedUser,
-    requestedCallCenterCode?: string,
-  ): Promise<Prisma.LeadWhereInput> {
-    const callCenterId =
-      await this.callCenterAccessService.resolveActiveOperatorCallCenterId(
-        user,
-      );
-    if (!callCenterId) return {};
-    if (requestedCallCenterCode) {
-      const ownCallCenter = await this.prisma.callCenter.findUnique({
-        where: { id: callCenterId },
-        select: { code: true },
-      });
-      if (
-        !ownCallCenter ||
-        ownCallCenter.code.toLowerCase() !==
-          requestedCallCenterCode.trim().toLowerCase()
-      )
-        return { id: { in: [] } };
-    }
-    return { distribution: { is: { callCenterId } } };
-  }
-
-  private assertDateRange(query: ListLeadsQueryDto): void {
-    if (query.from && query.to && new Date(query.from) >= new Date(query.to)) {
-      throw new BadRequestException(
-        'The from timestamp must be earlier than to.',
-      );
-    }
-  }
 }
 
 const leadInclude = {
@@ -333,6 +257,7 @@ function toLeadListItem(
     createdAt: lead.createdAt,
     callCenterCode: lead.distribution?.callCenter.code ?? null,
     assignedAt: lead.distribution?.assignedAt ?? null,
+    allowedNextStatuses: [...getAllowedNextLeadStatuses(lead.status)],
   };
 }
 

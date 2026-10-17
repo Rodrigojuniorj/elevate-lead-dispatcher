@@ -18,3 +18,7 @@ export function isLeadStatusTransitionAllowed(currentStatus: LeadStatus, nextSta
 export function isLeadStatusUnchanged(currentStatus: LeadStatus, nextStatus: LeadStatus): boolean {
   return currentStatus === nextStatus;
 }
+
+export function getAllowedNextLeadStatuses(currentStatus: LeadStatus): readonly LeadStatus[] {
+  return allowedTransitions[currentStatus];
+}
