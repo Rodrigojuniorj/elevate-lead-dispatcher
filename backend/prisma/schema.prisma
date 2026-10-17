@@ -147,11 +147,11 @@ model Lead {
   distributionJob DistributionJob?
   distribution    Distribution?
 
-  @@index([createdAt])
-  @@index([status, createdAt])
-  @@index([funnelProductId])
+  @@index([createdAt, id])
+  @@index([status, createdAt, id])
+  @@index([funnelProductId, createdAt, id])
   @@index([affiliateId])
-  @@index([source])
+  @@index([source, createdAt, id])
   @@map("leads")
 }
 
@@ -210,5 +210,6 @@ model Distribution {
   callCenter    CallCenter           @relation(fields: [callCenterId], references: [id], onDelete: Restrict)
 
   @@index([callCenterId, assignedAt])
+  @@index([callCenterId, leadId])
   @@map("distributions")
 }

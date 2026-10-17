@@ -1,5 +1,14 @@
-import { ConflictException, Injectable, UnprocessableEntityException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+  UnprocessableEntityException,
+} from '@nestjs/common';
+import { LeadStatusEventSource, Prisma, UserRole } from '@prisma/client';
+import { CallCenterAccessService } from '../../common/authorization/call-center-access.service.js';
+import type { AuthenticatedUser } from '../../common/auth/interfaces/authenticated-user.interface.js';
+import { paginate } from '../../common/pagination/pagination.helper.js';
 import { PrismaService } from '../../providers/prisma/prisma.service.js';
 import { DistributionOutboxPublisher } from '../dispatcher/distribution-outbox.publisher.js';
 import {
@@ -10,6 +19,12 @@ import {
   normalizeLeadText,
 } from './domain/lead-intake.policy.js';
 import type { CreateLeadDto } from './dto/create-lead.dto.js';
+import type { ListLeadsQueryDto } from './dto/list-leads-query.dto.js';
+import type { UpdateLeadStatusDto } from './dto/update-lead-status.dto.js';
+import {
+  isLeadStatusTransitionAllowed,
+  isLeadStatusUnchanged,
+} from './domain/lead-status-transition.policy.js';
 
 export type CreateLeadResult = { created: boolean; leadId: string };
 
@@ -18,9 +33,13 @@ export class LeadsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly distributionOutboxPublisher: DistributionOutboxPublisher,
+    private readonly callCenterAccessService: CallCenterAccessService,
   ) {}
 
-  async create(dto: CreateLeadDto, idempotencyKey: string): Promise<CreateLeadResult> {
+  async create(
+    dto: CreateLeadDto,
+    idempotencyKey: string,
+  ): Promise<CreateLeadResult> {
     const input = normalizeLeadInput(dto);
     const requestHash = createLeadRequestHash(input);
     const existingLead = await this.prisma.lead.findUnique({
@@ -28,7 +47,8 @@ export class LeadsService {
       select: { id: true, requestHash: true },
     });
 
-    if (existingLead) return this.resolveExistingLead(existingLead, requestHash);
+    if (existingLead)
+      return this.resolveExistingLead(existingLead, requestHash);
 
     try {
       const lead = await this.prisma.$transaction(async (transaction) => {
@@ -42,7 +62,9 @@ export class LeadsService {
         });
 
         if (!funnelProduct) {
-          throw new UnprocessableEntityException('The product and funnel combination is unavailable.');
+          throw new UnprocessableEntityException(
+            'The product and funnel combination is unavailable.',
+          );
         }
 
         const affiliate = input.affiliateCode
@@ -53,7 +75,9 @@ export class LeadsService {
           : null;
 
         if (input.affiliateCode && !affiliate) {
-          throw new UnprocessableEntityException('The affiliate is unavailable.');
+          throw new UnprocessableEntityException(
+            'The affiliate is unavailable.',
+          );
         }
 
         return transaction.lead.create({
@@ -102,13 +126,214 @@ export class LeadsService {
     }
   }
 
-  private resolveExistingLead(existingLead: { id: string; requestHash: string }, requestHash: string): CreateLeadResult {
+  async list(user: AuthenticatedUser, query: ListLeadsQueryDto) {
+    this.assertDateRange(query);
+    const scope = await this.getScope(user, query.callCenterCode);
+    const filters: Prisma.LeadWhereInput[] = [scope];
+
+    if (query.from || query.to)
+      filters.push({
+        createdAt: {
+          ...(query.from ? { gte: new Date(query.from) } : {}),
+          ...(query.to ? { lt: new Date(query.to) } : {}),
+        },
+      });
+    if (query.status) filters.push({ status: query.status });
+    if (query.source)
+      filters.push({
+        source: { equals: query.source.trim(), mode: 'insensitive' },
+      });
+    if (query.productCode)
+      filters.push({
+        funnelProduct: {
+          product: {
+            code: { equals: query.productCode.trim(), mode: 'insensitive' },
+          },
+        },
+      });
+    if (query.funnelCode)
+      filters.push({
+        funnelProduct: {
+          funnel: {
+            code: { equals: query.funnelCode.trim(), mode: 'insensitive' },
+          },
+        },
+      });
+    if (user.role === UserRole.ADMIN && query.callCenterCode)
+      filters.push({
+        distribution: {
+          is: {
+            callCenter: {
+              code: {
+                equals: query.callCenterCode.trim(),
+                mode: 'insensitive',
+              },
+            },
+          },
+        },
+      });
+    const where = { AND: filters };
+    return paginate(
+      query,
+      async (skip, take) =>
+        (
+          await this.prisma.lead.findMany({
+            where,
+            orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+            skip,
+            take,
+            include: leadInclude,
+          })
+        ).map(toLeadListItem),
+      () => this.prisma.lead.count({ where }),
+    );
+  }
+
+  async findOne(user: AuthenticatedUser, leadId: string) {
+    const scope = await this.getScope(user);
+    const lead = await this.prisma.lead.findFirst({
+      where: { AND: [scope, { id: leadId }] },
+      include: {
+        ...leadInclude,
+        statusHistory: {
+          orderBy: { occurredAt: 'asc' },
+          select: { status: true, eventSource: true, occurredAt: true },
+        },
+      },
+    });
+    if (!lead) throw new NotFoundException('Lead not found.');
+    return {
+      ...toLeadListItem(lead),
+      utmSource: lead.utmSource,
+      utmMedium: lead.utmMedium,
+      utmCampaign: lead.utmCampaign,
+      utmContent: lead.utmContent,
+      utmTerm: lead.utmTerm,
+      statusHistory: lead.statusHistory,
+    };
+  }
+
+  async updateStatus(
+    user: AuthenticatedUser,
+    leadId: string,
+    dto: UpdateLeadStatusDto,
+  ) {
+    const scope = await this.getScope(user);
+    return this.prisma.$transaction(async (transaction) => {
+      const lead = await transaction.lead.findFirst({
+        where: { AND: [scope, { id: leadId }] },
+        select: { id: true, status: true, updatedAt: true },
+      });
+      if (!lead) throw new NotFoundException('Lead not found.');
+      if (isLeadStatusUnchanged(lead.status, dto.status))
+        return {
+          leadId: lead.id,
+          status: lead.status,
+          updatedAt: lead.updatedAt,
+          changed: false,
+        };
+      if (!isLeadStatusTransitionAllowed(lead.status, dto.status))
+        throw new UnprocessableEntityException(
+          'The status transition is not allowed.',
+        );
+
+      const updatedLead = await transaction.lead.update({
+        where: { id: lead.id },
+        data: {
+          status: dto.status,
+          statusHistory: {
+            create: {
+              status: dto.status,
+              eventSource: LeadStatusEventSource.MANUAL,
+            },
+          },
+        },
+        select: { id: true, status: true, updatedAt: true },
+      });
+      return {
+        leadId: updatedLead.id,
+        status: updatedLead.status,
+        updatedAt: updatedLead.updatedAt,
+        changed: true,
+      };
+    });
+  }
+
+  private resolveExistingLead(
+    existingLead: { id: string; requestHash: string },
+    requestHash: string,
+  ): CreateLeadResult {
     if (!idempotencyRequestMatches(existingLead.requestHash, requestHash)) {
-      throw new ConflictException('The idempotency key was already used with a different payload.');
+      throw new ConflictException(
+        'The idempotency key was already used with a different payload.',
+      );
     }
 
     return { created: false, leadId: existingLead.id };
   }
+
+  private async getScope(
+    user: AuthenticatedUser,
+    requestedCallCenterCode?: string,
+  ): Promise<Prisma.LeadWhereInput> {
+    const callCenterId =
+      await this.callCenterAccessService.resolveActiveOperatorCallCenterId(
+        user,
+      );
+    if (!callCenterId) return {};
+    if (requestedCallCenterCode) {
+      const ownCallCenter = await this.prisma.callCenter.findUnique({
+        where: { id: callCenterId },
+        select: { code: true },
+      });
+      if (
+        !ownCallCenter ||
+        ownCallCenter.code.toLowerCase() !==
+          requestedCallCenterCode.trim().toLowerCase()
+      )
+        return { id: { in: [] } };
+    }
+    return { distribution: { is: { callCenterId } } };
+  }
+
+  private assertDateRange(query: ListLeadsQueryDto): void {
+    if (query.from && query.to && new Date(query.from) >= new Date(query.to)) {
+      throw new BadRequestException(
+        'The from timestamp must be earlier than to.',
+      );
+    }
+  }
+}
+
+const leadInclude = {
+  funnelProduct: {
+    include: {
+      funnel: { select: { code: true } },
+      product: { select: { code: true } },
+    },
+  },
+  affiliate: { select: { code: true } },
+  distribution: { include: { callCenter: { select: { code: true } } } },
+} satisfies Prisma.LeadInclude;
+
+function toLeadListItem(
+  lead: Prisma.LeadGetPayload<{ include: typeof leadInclude }>,
+) {
+  return {
+    id: lead.id,
+    name: lead.name,
+    email: lead.email,
+    phone: lead.phone,
+    status: lead.status,
+    productCode: lead.funnelProduct.product.code,
+    funnelCode: lead.funnelProduct.funnel.code,
+    affiliateCode: lead.affiliate?.code ?? null,
+    source: lead.source,
+    campaign: lead.campaign,
+    createdAt: lead.createdAt,
+    callCenterCode: lead.distribution?.callCenter.code ?? null,
+    assignedAt: lead.distribution?.assignedAt ?? null,
+  };
 }
 
 function normalizeLeadInput(dto: CreateLeadDto) {
@@ -118,7 +343,9 @@ function normalizeLeadInput(dto: CreateLeadDto) {
     phone: dto.phone.trim(),
     productCode: normalizeLeadCode(dto.productCode),
     funnelCode: normalizeLeadCode(dto.funnelCode),
-    affiliateCode: dto.affiliateCode ? normalizeLeadCode(dto.affiliateCode) : null,
+    affiliateCode: dto.affiliateCode
+      ? normalizeLeadCode(dto.affiliateCode)
+      : null,
     source: normalizeLeadCode(dto.source),
     campaign: dto.campaign ? normalizeLeadText(dto.campaign) : null,
     utm: {
@@ -132,5 +359,8 @@ function normalizeLeadInput(dto: CreateLeadDto) {
 }
 
 function isIdempotencyKeyConflict(error: unknown): boolean {
-  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
+  return (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    error.code === 'P2002'
+  );
 }

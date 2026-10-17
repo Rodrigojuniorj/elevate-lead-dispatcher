@@ -1,9 +1,11 @@
 import { ForbiddenException } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { CallCenterAccessService } from '../../../../src/common/authorization/call-center-access.service.js';
 
-const service = new CallCenterAccessService();
+const service = new CallCenterAccessService({
+  callCenter: { findFirst: vi.fn() },
+} as never);
 
 describe('CallCenterAccessService', () => {
   it('allows an administrator to access any call center', () => {

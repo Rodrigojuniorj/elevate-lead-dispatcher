@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import {
   ApiBearerAuth,
@@ -15,11 +15,11 @@ import { Public } from '../../common/auth/decorators/public.decorator.js';
 import { LoginDto } from './dto/login.dto.js';
 import { AuthenticatedUserDto } from './dto/authenticated-user.dto.js';
 import { LoginResponseDto } from './dto/login-response.dto.js';
-import { JwtAuthGuard } from '../../common/auth/guards/jwt-auth.guard.js';
 import type { AuthenticatedUser } from '../../common/auth/interfaces/authenticated-user.interface.js';
 import { HttpErrorResponseDto } from '../../common/dto/http-error-response.dto.js';
 
 @ApiTags('Authentication')
+@ApiBearerAuth('access-token')
 @Controller('api/auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
@@ -36,9 +36,7 @@ export class AuthController {
     return this.authService.login(dto);
   }
 
-  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Get the authenticated user profile' })
-  @ApiBearerAuth('access-token')
   @ApiOkResponse({ type: AuthenticatedUserDto })
   @ApiUnauthorizedResponse({ description: 'Bearer token is missing, invalid, expired, or belongs to an inactive user.', type: HttpErrorResponseDto })
   @Get('me')

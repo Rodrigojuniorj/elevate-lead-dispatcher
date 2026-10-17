@@ -1,5 +1,6 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, UserRole } from '@prisma/client';
+import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
 import { Queue } from 'bullmq';
 import { Redis } from 'ioredis';
@@ -31,6 +32,7 @@ const validLead = {
 describe('API e2e', () => {
   let app: INestApplication<App>;
   let leadsService: LeadsService;
+  let jwtService: JwtService;
 
   beforeAll(async () => {
     await distributionQueue.obliterate({ force: true });
@@ -40,6 +42,7 @@ describe('API e2e', () => {
     app.useGlobalPipes(new ValidationPipe({ transform: true, whitelist: true, forbidNonWhitelisted: true }));
     await app.init();
     leadsService = app.get(LeadsService);
+    jwtService = app.get(JwtService);
   });
 
   beforeEach(async () => {
@@ -182,6 +185,82 @@ describe('API e2e', () => {
 
     expect(await prisma.distributionJob.count({ where: { status: 'COMPLETED' } })).toBe(100);
     expect(distributionCounts).toEqual({ 'CALL-CENTER-A': 50, 'CALL-CENTER-B': 30, 'CALL-CENTER-C': 20 });
+  });
+
+  it('enforces lead query scopes and persists manual status history', async () => {
+    const centers = await prisma.callCenter.findMany({ orderBy: { code: 'asc' } });
+    const [centerA, centerB] = centers;
+    const admin = await prisma.user.upsert({
+      where: { email: 'lead-query-admin@example.com' },
+      update: { role: UserRole.ADMIN, callCenterId: null, isActive: true },
+      create: { name: 'Lead Query Admin', email: 'lead-query-admin@example.com', passwordHash: 'test', role: UserRole.ADMIN },
+    });
+    const operator = await prisma.user.upsert({
+      where: { email: 'lead-query-operator@example.com' },
+      update: { role: UserRole.OPERATOR, callCenterId: centerA.id, isActive: true },
+      create: { name: 'Lead Query Operator', email: 'lead-query-operator@example.com', passwordHash: 'test', role: UserRole.OPERATOR, callCenterId: centerA.id },
+    });
+    const adminToken = jwtService.sign({ sub: admin.id });
+    const operatorToken = jwtService.sign({ sub: operator.id });
+
+    const leadA = await leadsService.create({ ...validLead, name: 'Scoped A', email: 'scoped-a@example.com' }, 'lead-scope-a');
+    const leadB = await leadsService.create({ ...validLead, name: 'Scoped B', email: 'scoped-b@example.com' }, 'lead-scope-b');
+    await waitFor(() => prisma.distribution.count(), 2);
+    await prisma.distribution.update({ where: { leadId: leadA.leadId }, data: { callCenterId: centerA.id } });
+    await prisma.distribution.update({ where: { leadId: leadB.leadId }, data: { callCenterId: centerB.id } });
+
+    await request(app.getHttpServer()).get('/api/leads').set('Authorization', `Bearer ${adminToken}`).expect(200).expect((response) => {
+      expect(response.body.content).toHaveLength(2);
+      expect(response.body.content[0]).not.toHaveProperty('idempotencyKey');
+      expect(response.body.content[0]).not.toHaveProperty('requestHash');
+    });
+    await request(app.getHttpServer()).get('/api/leads').set('Authorization', `Bearer ${operatorToken}`).expect(200).expect((response) => {
+      expect(response.body.content).toHaveLength(1);
+      expect(response.body.content[0].id).toBe(leadA.leadId);
+    });
+    const firstPage = await request(app.getHttpServer()).get('/api/leads?pageNumber=0&pageSize=1').set('Authorization', `Bearer ${adminToken}`).expect(200);
+    expect(firstPage.body.content).toHaveLength(1);
+    expect(firstPage.body).toMatchObject({ pageNumber: 0, pageSize: 1, totalElements: 2, totalPages: 2 });
+    const secondPage = await request(app.getHttpServer())
+      .get('/api/leads?pageNumber=1&pageSize=1')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .expect(200);
+    expect(secondPage.body.content).toHaveLength(1);
+    expect(secondPage.body.content[0].id).not.toBe(firstPage.body.content[0].id);
+    await request(app.getHttpServer())
+      .get('/api/leads?status=NEW&productCode=nutralean&funnelCode=vsl-01&source=facebook&callCenterCode=CALL-CENTER-A')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .expect(200)
+      .expect((response) => expect(response.body.content.map((item: { id: string }) => item.id)).toEqual([leadA.leadId]));
+    await request(app.getHttpServer())
+      .get('/api/leads?callCenterCode=CALL-CENTER-B')
+      .set('Authorization', `Bearer ${operatorToken}`)
+      .expect(200)
+      .expect((response) => expect(response.body.content).toEqual([]));
+    await request(app.getHttpServer()).get(`/api/leads/${leadB.leadId}`).set('Authorization', `Bearer ${operatorToken}`).expect(404);
+    await request(app.getHttpServer())
+      .patch(`/api/leads/${leadA.leadId}/status`)
+      .set('Authorization', `Bearer ${operatorToken}`)
+      .send({ status: 'CONTACTED' })
+      .expect(200)
+      .expect((response) => {
+        expect(response.body).toMatchObject({ leadId: leadA.leadId, status: 'CONTACTED', changed: true });
+        expect(response.body.updatedAt).toEqual(expect.any(String));
+      });
+    await request(app.getHttpServer())
+      .patch(`/api/leads/${leadA.leadId}/status`)
+      .set('Authorization', `Bearer ${operatorToken}`)
+      .send({ status: 'CONTACTED' })
+      .expect(200)
+      .expect((response) => expect(response.body.changed).toBe(false));
+    await request(app.getHttpServer())
+      .patch(`/api/leads/${leadA.leadId}/status`)
+      .set('Authorization', `Bearer ${operatorToken}`)
+      .send({ status: 'NEW' })
+      .expect(422);
+    await expect(prisma.leadStatusHistory.count({ where: { leadId: leadA.leadId } })).resolves.toBe(2);
+    await prisma.callCenter.update({ where: { id: centerA.id }, data: { isActive: false } });
+    await request(app.getHttpServer()).get('/api/leads').set('Authorization', `Bearer ${operatorToken}`).expect(403);
   });
 
   afterEach(async () => {
