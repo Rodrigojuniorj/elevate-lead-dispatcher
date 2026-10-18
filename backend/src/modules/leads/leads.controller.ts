@@ -16,9 +16,11 @@ import {
   ApiUnprocessableEntityResponse,
 } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
+import { UserRole } from '@prisma/client';
 import type { Response } from 'express';
 import { Public } from '../../common/auth/decorators/public.decorator.js';
 import { CurrentUser } from '../../common/auth/decorators/current-user.decorator.js';
+import { Roles } from '../../common/auth/decorators/roles.decorator.js';
 import type { AuthenticatedUser } from '../../common/auth/interfaces/authenticated-user.interface.js';
 import type { BaseFilterResponseDto } from '../../common/dto/base-filter-response.dto.js';
 import { HttpErrorResponseDto } from '../../common/dto/http-error-response.dto.js';
@@ -96,7 +98,8 @@ export class LeadsController {
     return this.leadsService.findOne(user, leadId);
   }
 
-  @ApiOperation({ summary: 'Update the status of a lead within the authenticated user scope' })
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Update the status of any lead manually (ADMIN only)' })
   @ApiBody({ type: UpdateLeadStatusDto })
   @ApiOkResponse({ type: UpdateLeadStatusResponseDto })
   @ApiBadRequestResponse({ type: HttpErrorResponseDto })

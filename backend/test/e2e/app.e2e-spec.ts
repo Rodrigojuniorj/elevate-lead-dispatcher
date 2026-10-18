@@ -370,6 +370,11 @@ describe('API e2e', () => {
       .patch(`/api/leads/${leadA.leadId}/status`)
       .set('Authorization', `Bearer ${operatorToken}`)
       .send({ status: 'CONTACTED' })
+      .expect(403);
+    await request(app.getHttpServer())
+      .patch(`/api/leads/${leadA.leadId}/status`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ status: 'CONTACTED' })
       .expect(200)
       .expect((response) => {
         expect(response.body).toMatchObject({
@@ -381,18 +386,42 @@ describe('API e2e', () => {
       });
     await request(app.getHttpServer())
       .patch(`/api/leads/${leadA.leadId}/status`)
-      .set('Authorization', `Bearer ${operatorToken}`)
+      .set('Authorization', `Bearer ${adminToken}`)
       .send({ status: 'CONTACTED' })
       .expect(200)
       .expect((response) => expect(response.body.changed).toBe(false));
     await request(app.getHttpServer())
       .patch(`/api/leads/${leadA.leadId}/status`)
-      .set('Authorization', `Bearer ${operatorToken}`)
+      .set('Authorization', `Bearer ${adminToken}`)
       .send({ status: 'NEW' })
       .expect(422);
     await expect(
       prisma.leadStatusHistory.count({ where: { leadId: leadA.leadId } }),
     ).resolves.toBe(2);
+    await request(app.getHttpServer())
+      .post(`/api/call-center-webhook-simulations/leads/${leadA.leadId}`)
+      .set('Authorization', `Bearer ${operatorToken}`)
+      .send({ status: 'CALLBACK' })
+      .expect(200)
+      .expect((response) => {
+        expect(response.body).toMatchObject({
+          event: {
+            leadId: leadA.leadId,
+            externalId: expect.stringMatching(/^simulation-/),
+            status: 'callback',
+            timestamp: expect.any(String),
+          },
+          response: {
+            success: true,
+            leadId: leadA.leadId,
+            status: 'CALLBACK',
+            outcome: 'APPLIED',
+          },
+        });
+      });
+    await expect(
+      prisma.leadStatusHistory.count({ where: { leadId: leadA.leadId } }),
+    ).resolves.toBe(3);
     await prisma.callCenter.update({
       where: { id: centerA.id },
       data: { isActive: false },

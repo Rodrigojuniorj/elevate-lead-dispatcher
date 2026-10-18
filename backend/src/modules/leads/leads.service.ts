@@ -1,10 +1,11 @@
 import {
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { LeadStatusEventSource, Prisma } from '@prisma/client';
+import { LeadStatusEventSource, Prisma, UserRole } from '@prisma/client';
 import type { AuthenticatedUser } from '../../common/auth/interfaces/authenticated-user.interface.js';
 import { paginate } from '../../common/pagination/pagination.helper.js';
 import { acquireLeadStatusAdvisoryLock } from '../../common/database/lead-status-advisory-lock.js';
@@ -174,6 +175,10 @@ export class LeadsService {
     leadId: string,
     dto: UpdateLeadStatusDto,
   ) {
+    if (user.role !== UserRole.ADMIN) {
+      throw new ForbiddenException('Only administrators can update lead status manually.');
+    }
+
     const scope = await this.leadFilterService.build(user, {});
     return this.prisma.$transaction(async (transaction) => {
       await acquireLeadStatusAdvisoryLock(transaction, leadId);
