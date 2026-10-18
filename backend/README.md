@@ -4,11 +4,28 @@
 
 ```bash
 yarn install
-docker compose up -d postgres redis
-yarn prisma migrate deploy
-yarn prisma:seed
+docker compose up -d
 yarn start:dev
 ```
+
+Ao executar `docker compose up -d`, o serviço `database-bootstrap` aguarda o PostgreSQL, aplica as migrations e cria os dados iniciais somente quando as entidades-base ainda estão vazias. Em um banco já preenchido, ele não altera os dados. Para aplicar as seeds idempotentes manualmente, execute `yarn prisma:seed`.
+
+As contas locais iniciais são exclusivas de desenvolvimento:
+
+| Perfil | E-mail | Senha | Call center |
+| --- | --- | --- | --- |
+| ADMIN | `admin@elevate.local` | `ElevateAdmin!2026` | — |
+| OPERATOR | `operator.a@elevate.local` | `OperatorA!2026` | `CALL-CENTER-A` |
+| OPERATOR | `operator.b@elevate.local` | `OperatorB!2026` | `CALL-CENTER-B` |
+| OPERATOR | `operator.c@elevate.local` | `OperatorC!2026` | `CALL-CENTER-C` |
+
+As API keys locais do webhook também são criadas pela seed. Elas existem somente para desenvolvimento e devem ser enviadas no header `X-API-Key`:
+
+| Call center | API key |
+| --- | --- |
+| `CALL-CENTER-A` | `elevate-webhook-call-center-a-2026` |
+| `CALL-CENTER-B` | `elevate-webhook-call-center-b-2026` |
+| `CALL-CENTER-C` | `elevate-webhook-call-center-c-2026` |
 
 A API fica disponível em `http://localhost:3000/api` e o Swagger em `http://localhost:3000/api/docs`.
 
