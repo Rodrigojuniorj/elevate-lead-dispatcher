@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getDashboardMetrics } from '../../apis/dashboard/dashboard.api';
-import { getLeads, patchLeadStatus } from '../../apis/leads/leads.api';
+import { getLeads, patchLeadStatus, simulateCallCenterWebhook } from '../../apis/leads/leads.api';
 import { useAuth } from '../../contexts/Auth.context';
 import type { DashboardMetrics } from '../../types/dashboard/DashboardMetrics.type';
-import type { Lead, LeadFilters, LeadPage, LeadStatus } from '../../types/leads/Lead.type';
+import type { CallCenterWebhookSimulation, Lead, LeadFilters, LeadPage, LeadStatus } from '../../types/leads/Lead.type';
 
 const emptyFilters: LeadFilters = { pageNumber: 0, pageSize: 20 };
 
@@ -42,10 +42,14 @@ export function DashboardPage() {
   const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [updatingLeadId, setUpdatingLeadId] = useState<string | null>(null);
+  const [simulationLeadId, setSimulationLeadId] = useState<string | null>(null);
+  const [simulatingLeadId, setSimulatingLeadId] = useState<string | null>(null);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [error, setError] = useState('');
   const [statusSelections, setStatusSelections] = useState<Record<string, LeadStatus | ''>>({});
+  const [simulationSelections, setSimulationSelections] = useState<Record<string, LeadStatus | ''>>({});
+  const [lastWebhookSimulation, setLastWebhookSimulation] = useState<CallCenterWebhookSimulation | null>(null);
   const latestLoadRequest = useRef(0);
 
   const load = useCallback(async (filters: LeadFilters) => {
@@ -93,6 +97,27 @@ export function DashboardPage() {
     }
   }
 
+  async function submitWebhookSimulation(lead: Lead) {
+    const status = simulationSelections[lead.id];
+    if (!status) return;
+
+    const confirmed = window.confirm(`Simular retorno do call center para ${lead.name} como ${statusLabels[status]}?`);
+    if (!confirmed) return;
+
+    setSimulatingLeadId(lead.id); setError('');
+    try {
+      const result = await simulateCallCenterWebhook(lead.id, status);
+      setLastWebhookSimulation(result);
+      setSimulationLeadId(null);
+      await load(appliedFilters);
+    } catch {
+      setError('Não foi possível simular o retorno do call center para este lead.');
+    } finally {
+      setSimulatingLeadId(null);
+      setSimulationSelections((current) => ({ ...current, [lead.id]: '' }));
+    }
+  }
+
   const hasFilters = Object.entries(draftFilters).some(([key, value]) => !['pageNumber', 'pageSize'].includes(key) && value);
   const initial = user.name.trim().charAt(0).toUpperCase();
   return (
@@ -117,10 +142,11 @@ export function DashboardPage() {
           </div><div className="filter-actions"><button className="text-button" type="button" disabled={!hasFilters} onClick={resetFilters}>Limpar</button><button className="apply-button" type="submit">Aplicar filtros</button></div>
         </form></div>}
         {error && <p className="dashboard-error" role="alert">{error}</p>}
+        {lastWebhookSimulation && <section className="webhook-feedback" role="status"><div><p className="section-kicker">Webhook de teste enviado</p><strong>{statusLabels[lastWebhookSimulation.response.status]}</strong><span>Resposta da API: <b>{lastWebhookSimulation.response.outcome}</b></span></div><dl><div><dt>Evento</dt><dd>{lastWebhookSimulation.event.externalId}</dd></div><div><dt>Enviado em</dt><dd>{formatDate(lastWebhookSimulation.event.timestamp)}</dd></div></dl><button type="button" aria-label="Fechar confirmação do webhook" onClick={() => setLastWebhookSimulation(null)}>×</button></section>}
         <div className="table-frame"><table><thead><tr><th>Lead</th><th>Produto</th><th>Origem</th><th>Destino</th><th>Status</th><th>Recebido em</th><th><span className="sr-only">Ação</span></th></tr></thead><tbody>
           {isLoading && <tr><td className="table-message" colSpan={7}><span className="loading-dot" />Atualizando a fila…</td></tr>}
           {!isLoading && page?.content.length === 0 && <tr><td className="table-message" colSpan={7}>Nenhum lead encontrado para este recorte.</td></tr>}
-          {!isLoading && page?.content.map((lead) => <tr key={lead.id}><td><strong>{lead.name}</strong><small>{lead.email}</small></td><td><span className="code-chip">{lead.productCode}</span><small>{lead.funnelCode}</small></td><td>{lead.source}</td><td>{lead.callCenterCode ?? <span className="muted-value">Pendente</span>}</td><td><LeadStatusBadge status={lead.status} /></td><td><time dateTime={lead.createdAt}>{formatDate(lead.createdAt)}</time></td><td className="row-action">{user.role === 'OPERATOR' && lead.allowedNextStatuses.length > 0 && <select aria-label={`Alterar status de ${lead.name}`} disabled={updatingLeadId === lead.id} value={statusSelections[lead.id] ?? ''} onChange={(event) => void updateStatus(lead, event.target.value as LeadStatus)}><option value="">Atualizar</option>{lead.allowedNextStatuses.map((status) => <option key={status} value={status}>{statusLabels[status]}</option>)}</select>}</td></tr>)}
+          {!isLoading && page?.content.map((lead) => <tr key={lead.id}><td><strong>{lead.name}</strong><small>{lead.email}</small></td><td><span className="code-chip">{lead.productCode}</span><small>{lead.funnelCode}</small></td><td>{lead.source}</td><td>{lead.callCenterCode ?? <span className="muted-value">Pendente</span>}</td><td><LeadStatusBadge status={lead.status} /></td><td><time dateTime={lead.createdAt}>{formatDate(lead.createdAt)}</time></td><td className="row-action">{user.role === 'ADMIN' && lead.allowedNextStatuses.length > 0 && <select aria-label={`Alterar status de ${lead.name}`} disabled={updatingLeadId === lead.id} value={statusSelections[lead.id] ?? ''} onChange={(event) => void updateStatus(lead, event.target.value as LeadStatus)}><option value="">Atualizar</option>{lead.allowedNextStatuses.map((status) => <option key={status} value={status}>{statusLabels[status]}</option>)}</select>}{user.role === 'OPERATOR' && lead.allowedNextStatuses.length > 0 && (simulationLeadId === lead.id ? <div className="webhook-simulation"><select aria-label={`Status simulado de ${lead.name}`} disabled={simulatingLeadId === lead.id} value={simulationSelections[lead.id] ?? ''} onChange={(event) => setSimulationSelections((current) => ({ ...current, [lead.id]: event.target.value as LeadStatus }))}><option value="">Selecionar status</option>{lead.allowedNextStatuses.map((status) => <option key={status} value={status}>{statusLabels[status]}</option>)}</select><div><button className="webhook-simulation__send" type="button" disabled={!simulationSelections[lead.id] || simulatingLeadId === lead.id} onClick={() => void submitWebhookSimulation(lead)}>{simulatingLeadId === lead.id ? 'Enviando…' : 'Enviar'}</button><button className="webhook-simulation__cancel" type="button" disabled={simulatingLeadId === lead.id} onClick={() => { setSimulationLeadId(null); setSimulationSelections((current) => ({ ...current, [lead.id]: '' })); }}>Cancelar</button></div></div> : <button className="webhook-simulation__trigger" type="button" onClick={() => setSimulationLeadId(lead.id)}>Simular retorno</button>)}</td></tr>)}
         </tbody></table>{page && page.totalPages > 1 && <footer className="table-footer"><span>Página <b>{page.pageNumber + 1}</b> de <b>{page.totalPages}</b></span><div><button className="pagination-button" type="button" disabled={page.pageNumber === 0 || isLoading} onClick={() => changePage(page.pageNumber - 1)}>Anterior</button><button className="pagination-button" type="button" disabled={page.pageNumber + 1 >= page.totalPages || isLoading} onClick={() => changePage(page.pageNumber + 1)}>Próxima</button></div></footer>}</div>
       </section>
       </div>

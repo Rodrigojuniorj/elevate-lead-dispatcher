@@ -33,3 +33,18 @@ export type LeadPage = {
   totalElements: number;
   totalPages: number;
 };
+
+export type CallCenterWebhookSimulation = {
+  event: {
+    leadId: string;
+    externalId: string;
+    status: string;
+    timestamp: string;
+  };
+  response: {
+    success: boolean;
+    leadId: string;
+    status: LeadStatus;
+    outcome: 'APPLIED' | 'IGNORED_STALE' | 'IGNORED_UNCHANGED' | 'REJECTED_INVALID_TRANSITION';
+  };
+};
