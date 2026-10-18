@@ -8,6 +8,10 @@ Receber eventos de atendimento enviados por call centers, autenticar a origem, a
 
 `POST /api/webhooks/callcenter` não exige JWT; ele exige `X-API-Key`. A chave identifica um único call center e somente seu hash é persistido.
 
+Este é o único canal pelo qual um call center altera o status operacional de um lead. A rota manual autenticada é exclusiva de `ADMIN`.
+
+Este é o único canal pelo qual um call center altera o status operacional de um lead. A rota manual autenticada é exclusiva de `ADMIN`.
+
 ```json
 {
   "lead_id": "8f3c7c2e-5b1a-4d0e-9a67-2f4c1b7e9d10",
@@ -40,3 +44,26 @@ Receber eventos de atendimento enviados por call centers, autenticar a origem, a
 - Eventos válidos são aplicados uma única vez, inclusive sob concorrência.
 - Eventos repetidos, atrasados e sem mudança respondem `200` sem novo histórico.
 - Alterações manuais e webhook usam o mesmo lock transacional por lead.
+
+## Simulação local por operador
+
+Fora de produção, `POST /api/call-center-webhook-simulations/leads/:leadId` permite que um `OPERATOR` simule a entrega de um evento do seu call center. A rota exige JWT, confirma o call center ativo do operador e delega ao mesmo serviço usado pelo webhook público. O servidor gera `external_id` único e timestamp atual; a interface envia somente o próximo status permitido. Nenhuma API key é exposta ao navegador e a rota responde `404` em produção.
+
+A resposta contém o evento que foi simulado e a resposta do processamento do webhook. Isso permite demonstrar a entrega e o resultado (`APPLIED`, `IGNORED_STALE` ou `IGNORED_UNCHANGED`) sem apresentar qualquer segredo:
+
+```json
+{
+  "event": {
+    "leadId": "uuid-do-lead",
+    "externalId": "simulation-uuid",
+    "status": "contacted",
+    "timestamp": "2026-10-18T14:00:00.000Z"
+  },
+  "response": {
+    "success": true,
+    "leadId": "uuid-do-lead",
+    "status": "CONTACTED",
+    "outcome": "APPLIED"
+  }
+}
+```

@@ -25,3 +25,5 @@ Em colisão da constraint da inbox, o evento é relido: hash igual devolve o res
 A criação local de uma credencial gera uma chave aleatória e imprime seu valor apenas uma vez; o banco armazena somente o hash. O modelo já permite múltiplas credenciais por call center para rotação e revogação. Esta feature não inclui fila, JWT, interface ou callback.
 
 Para provisionar uma credencial localmente, execute `yarn webhook:key:create CALL-CENTER-A` dentro de `backend/` e entregue a chave exibida somente ao call center correspondente.
+
+Para demonstrar o fluxo pela interface local, um endpoint de simulação protegido por JWT fica disponível somente fora de produção. Ele aceita um status interno de um `OPERATOR`, resolve o call center ativo pelo usuário e chama `CallCenterWebhookService.process` com identificador externo e timestamp gerados no servidor. Portanto, a simulação percorre a mesma inbox, locks, ordenação e regras de transição do webhook real.

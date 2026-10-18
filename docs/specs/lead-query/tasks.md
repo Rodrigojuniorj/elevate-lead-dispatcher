@@ -25,7 +25,7 @@
   - Resultado: `GET /api/leads/:leadId` retorna dados operacionais e histórico sem expor segredos.
 - [x] **2.4 Implementar atualização manual de status.**
   - Dependência: 1.2 e 1.3.
-  - Resultado: `PATCH /api/leads/:leadId/status` grava estado e evento de forma atômica.
+  - Resultado: `PATCH /api/leads/:leadId/status` é exclusivo de `ADMIN` e grava estado e evento de forma atômica.
 
 ## 3. Validação
 
@@ -34,7 +34,7 @@
   - Resultado: nenhuma regressão ou evento duplicado é gravado.
 - [x] **3.2 Testar escopo de ADMIN e OPERATOR.**
   - Dependência: 2.2, 2.3 e 2.4.
-  - Resultado: operador não consulta nem altera lead de outro call center.
+  - Resultado: operador não consulta lead de outro call center nem altera status manualmente.
 - [x] **3.3 Testar filtros, cursor e paginação.**
   - Dependência: 2.2.
   - Resultado: páginas estáveis e filtros corretos.

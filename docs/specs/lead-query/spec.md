@@ -33,10 +33,10 @@ Recebe `{ "status": "CONTACTED" }`, atualiza o status atual e cria um novo `Lead
 - `ADMIN` consulta qualquer lead e pode filtrar por qualquer call center.
 - `ADMIN` também pode atualizar o status de qualquer lead.
 - `OPERATOR` consulta somente leads cuja `Distribution.callCenterId` corresponde ao seu `User.callCenterId`.
-- `OPERATOR` atualiza status somente dentro desse mesmo escopo.
+- `OPERATOR` não atualiza status pela API. O status operacional enviado por um call center entra exclusivamente pelo webhook autenticado.
 - O filtro de call center informado por `OPERATOR` não amplia escopo: se for incompatível, a API retorna lista vazia; o escopo sempre vem do usuário autenticado.
 - Um `OPERATOR` sem call center ativo recebe `403 Forbidden`.
-- Para detalhe ou atualização fora do escopo, a API retorna `404 Not Found`, evitando revelar a existência do lead.
+- Para detalhe fora do escopo, a API retorna `404 Not Found`, evitando revelar a existência do lead. Uma tentativa de atualização manual por `OPERATOR` retorna `403 Forbidden`.
 - A autorização ocorre na query e na mutação do backend; esconder controles no frontend não é suficiente.
 
 ## Transições manuais de status

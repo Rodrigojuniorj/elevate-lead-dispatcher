@@ -35,3 +35,6 @@
 - [x] **4.3 Executar validação completa.**
   - Dependência: 4.2.
   - Resultado: generate, migration, build, lint, unitários e e2e concluídos.
+- [x] **4.4 Disponibilizar simulação local do webhook para operadores.**
+  - Dependência: 3.2.
+  - Resultado: a interface simula eventos do call center sem expor API key e reutiliza o processamento real fora de produção.

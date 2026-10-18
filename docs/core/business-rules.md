@@ -3,7 +3,8 @@
 ## Usuários e acesso
 
 - `ADMIN` acessa recursos administrativos, métricas e qualquer call center.
-- `OPERATOR` deve estar associado a exatamente um `CallCenter` e só pode consultar ou atualizar leads daquele call center.
+- `OPERATOR` deve estar associado a exatamente um `CallCenter` e só pode consultar leads daquele call center.
+- Apenas `ADMIN` atualiza status manualmente pela API autenticada. Call centers atualizam status exclusivamente pelo webhook autenticado, dentro do próprio escopo de distribuição.
 - Usuários inativos não podem autenticar nem acessar recursos autenticados.
 - A autorização é aplicada no backend. A interface apenas reflete as permissões retornadas pela API.
 
@@ -19,6 +20,7 @@
 - O status inicial é `NEW`; eventos de status são imutáveis para auditoria.
 - Atualizações de status recebidas por webhook são ordenadas pelo timestamp do evento. Apenas eventos estritamente posteriores ao último status aceito podem alterar o lead; eventos atrasados, repetidos ou inválidos permanecem na inbox auditável e não criam histórico operacional.
 - Um webhook autentica o call center exclusivamente pela sua API key. A chave não é armazenada em texto puro e só pode alterar leads distribuídos ao centro autenticado.
+- Fora de produção, um `OPERATOR` pode simular uma entrega do call center pela interface. A simulação reutiliza o mesmo processamento do webhook, gera `external_id` e timestamp no servidor e não expõe API key ao navegador.
 - A criação de leads exige uma chave de idempotência única e valida a compatibilidade entre produto e funil.
 
 ## Distribuição
