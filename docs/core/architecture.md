@@ -13,7 +13,7 @@ src/
 
 O fluxo HTTP é: navegador → controller do módulo → serviço de domínio → provider → PostgreSQL. Controllers adaptam HTTP; services aplicam regras; guards aplicam autenticação e autorização. Nenhuma regra de permissão deve depender somente do frontend.
 
-O PostgreSQL local é disponibilizado pelo Compose. O backend pode ser executado fora de containers usando `DATABASE_URL`.
+O PostgreSQL local é disponibilizado pelo Compose. O serviço one-shot `database-bootstrap` espera o banco ficar saudável, aplica migrations e cria os dados iniciais apenas quando as entidades-base estão vazias. O backend pode ser executado fora de containers usando `DATABASE_URL`.
 
 O domínio de leads mantém catálogos de funis, produtos e afiliados. A associação `FunnelProduct` modela ofertas válidas, permitindo que o mesmo produto participe de múltiplos funis. O endpoint de entrada cria o lead, seu primeiro evento de status e um trabalho durável de distribuição em uma única transação.
 
