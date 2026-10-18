@@ -18,6 +18,10 @@ describe('envSchema', () => {
   });
 
   it('rejects a missing JWT access secret', () => {
-    expect(() => envSchema.parse({ DATABASE_URL: 'postgresql://user:password@localhost:5432/database' })).toThrow();
+    expect(() =>
+      envSchema.parse({
+        DATABASE_URL: 'postgresql://user:password@localhost:5432/database',
+      }),
+    ).toThrow();
   });
 });

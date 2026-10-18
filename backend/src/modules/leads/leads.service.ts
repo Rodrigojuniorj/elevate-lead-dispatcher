@@ -7,6 +7,7 @@ import {
 import { LeadStatusEventSource, Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../../common/auth/interfaces/authenticated-user.interface.js';
 import { paginate } from '../../common/pagination/pagination.helper.js';
+import { acquireLeadStatusAdvisoryLock } from '../../common/database/lead-status-advisory-lock.js';
 import { PrismaService } from '../../providers/prisma/prisma.service.js';
 import { DistributionOutboxPublisher } from '../dispatcher/distribution-outbox.publisher.js';
 import {
@@ -175,6 +176,7 @@ export class LeadsService {
   ) {
     const scope = await this.leadFilterService.build(user, {});
     return this.prisma.$transaction(async (transaction) => {
+      await acquireLeadStatusAdvisoryLock(transaction, leadId);
       const lead = await transaction.lead.findFirst({
         where: { AND: [scope, { id: leadId }] },
         select: { id: true, status: true, updatedAt: true },
@@ -226,7 +228,6 @@ export class LeadsService {
 
     return { created: false, leadId: existingLead.id };
   }
-
 }
 
 const leadInclude = {

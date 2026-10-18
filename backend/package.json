@@ -24,6 +24,8 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:seed": "prisma db seed",
+    "prisma:seed:if-empty": "node prisma/seed-if-empty.mjs",
+    "webhook:key:create": "node scripts/create-call-center-webhook-credential.mjs",
     "test:leads": "node scripts/send-leads.mjs"
   },
   "dependencies": {
