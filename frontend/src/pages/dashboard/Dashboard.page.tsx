@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { getDashboardMetrics } from '../../apis/dashboard/dashboard.api';
 import { getLeads, patchLeadStatus } from '../../apis/leads/leads.api';
 import { useAuth } from '../../contexts/Auth.context';
@@ -21,7 +21,13 @@ const metricDefinitions: Array<{ key: keyof DashboardMetrics; label: string; det
   { key: 'conversionRate', label: 'Conversão', detail: 'Vendas sobre o total' },
 ];
 
-function toInputDate(value?: string): string { return value ? new Date(value).toISOString().slice(0, 16) : ''; }
+function toInputDate(value?: string): string {
+  if (!value) return '';
+
+  const date = new Date(value);
+  const pad = (part: number) => String(part).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
 function formatMetric(key: keyof DashboardMetrics, value: number): string { return key === 'conversionRate' ? `${value.toFixed(1)}%` : new Intl.NumberFormat('pt-BR').format(value); }
 function formatDate(value: string): string { return new Intl.DateTimeFormat('pt-BR', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)); }
 function LeadStatusBadge({ status }: { status: LeadStatus }) { return <span className={`status-badge status-badge--${status.toLowerCase().replace('_', '-')}`}>{statusLabels[status]}</span>; }
@@ -29,6 +35,7 @@ function LeadsIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><path 
 
 export function DashboardPage() {
   const { signOut, user } = useAuth();
+  const userRole = user?.role;
   const [draftFilters, setDraftFilters] = useState<LeadFilters>(emptyFilters);
   const [appliedFilters, setAppliedFilters] = useState<LeadFilters>(emptyFilters);
   const [page, setPage] = useState<LeadPage | null>(null);
@@ -38,18 +45,28 @@ export function DashboardPage() {
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [error, setError] = useState('');
+  const [statusSelections, setStatusSelections] = useState<Record<string, LeadStatus | ''>>({});
+  const latestLoadRequest = useRef(0);
 
-  async function load(filters: LeadFilters) {
+  const load = useCallback(async (filters: LeadFilters) => {
+    const requestId = ++latestLoadRequest.current;
     setIsLoading(true); setError('');
     try {
       const leadPage = await getLeads(filters);
-      const dashboardMetrics = user?.role === 'ADMIN' ? await getDashboardMetrics(filters) : null;
-      setPage(leadPage); setMetrics(dashboardMetrics);
-    } catch { setError('Não foi possível carregar os dados agora. Tente novamente.'); }
-    finally { setIsLoading(false); }
-  }
+      const dashboardMetrics = userRole === 'ADMIN' ? await getDashboardMetrics(filters) : null;
+      if (requestId === latestLoadRequest.current) {
+        setPage(leadPage); setMetrics(dashboardMetrics);
+      }
+    } catch {
+      if (requestId === latestLoadRequest.current) setError('Não foi possível carregar os dados agora. Tente novamente.');
+    } finally {
+      if (requestId === latestLoadRequest.current) setIsLoading(false);
+    }
+  }, [userRole]);
 
-  useEffect(() => { if (user) void load(emptyFilters); }, [user?.role]);
+  useEffect(() => {
+    if (userRole) void load(emptyFilters);
+  }, [load, userRole]);
   if (!user) return null;
 
   function setFilter<Key extends keyof LeadFilters>(key: Key, value: LeadFilters[Key]) {
@@ -63,10 +80,17 @@ export function DashboardPage() {
   function changePage(pageNumber: number) { const nextFilters = { ...appliedFilters, pageNumber }; setAppliedFilters(nextFilters); void load(nextFilters); }
   async function updateStatus(lead: Lead, status: LeadStatus) {
     if (!status) return;
+    const confirmed = window.confirm(`Alterar o status de ${lead.name} para ${statusLabels[status]}?`);
+    if (!confirmed) return;
+
+    setStatusSelections((current) => ({ ...current, [lead.id]: status }));
     setUpdatingLeadId(lead.id); setError('');
     try { await patchLeadStatus(lead.id, status); await load(appliedFilters); }
     catch { setError('Não foi possível atualizar o status deste lead.'); }
-    finally { setUpdatingLeadId(null); }
+    finally {
+      setUpdatingLeadId(null);
+      setStatusSelections((current) => ({ ...current, [lead.id]: '' }));
+    }
   }
 
   const hasFilters = Object.entries(draftFilters).some(([key, value]) => !['pageNumber', 'pageSize'].includes(key) && value);
@@ -96,7 +120,7 @@ export function DashboardPage() {
         <div className="table-frame"><table><thead><tr><th>Lead</th><th>Produto</th><th>Origem</th><th>Destino</th><th>Status</th><th>Recebido em</th><th><span className="sr-only">Ação</span></th></tr></thead><tbody>
           {isLoading && <tr><td className="table-message" colSpan={7}><span className="loading-dot" />Atualizando a fila…</td></tr>}
           {!isLoading && page?.content.length === 0 && <tr><td className="table-message" colSpan={7}>Nenhum lead encontrado para este recorte.</td></tr>}
-          {!isLoading && page?.content.map((lead) => <tr key={lead.id}><td><strong>{lead.name}</strong><small>{lead.email}</small></td><td><span className="code-chip">{lead.productCode}</span><small>{lead.funnelCode}</small></td><td>{lead.source}</td><td>{lead.callCenterCode ?? <span className="muted-value">Pendente</span>}</td><td><LeadStatusBadge status={lead.status} /></td><td><time dateTime={lead.createdAt}>{formatDate(lead.createdAt)}</time></td><td className="row-action">{user.role === 'OPERATOR' && lead.allowedNextStatuses.length > 0 && <select aria-label={`Alterar status de ${lead.name}`} disabled={updatingLeadId === lead.id} defaultValue="" onChange={(event) => void updateStatus(lead, event.target.value as LeadStatus)}><option value="">Atualizar</option>{lead.allowedNextStatuses.map((status) => <option key={status} value={status}>{statusLabels[status]}</option>)}</select>}</td></tr>)}
+          {!isLoading && page?.content.map((lead) => <tr key={lead.id}><td><strong>{lead.name}</strong><small>{lead.email}</small></td><td><span className="code-chip">{lead.productCode}</span><small>{lead.funnelCode}</small></td><td>{lead.source}</td><td>{lead.callCenterCode ?? <span className="muted-value">Pendente</span>}</td><td><LeadStatusBadge status={lead.status} /></td><td><time dateTime={lead.createdAt}>{formatDate(lead.createdAt)}</time></td><td className="row-action">{user.role === 'OPERATOR' && lead.allowedNextStatuses.length > 0 && <select aria-label={`Alterar status de ${lead.name}`} disabled={updatingLeadId === lead.id} value={statusSelections[lead.id] ?? ''} onChange={(event) => void updateStatus(lead, event.target.value as LeadStatus)}><option value="">Atualizar</option>{lead.allowedNextStatuses.map((status) => <option key={status} value={status}>{statusLabels[status]}</option>)}</select>}</td></tr>)}
         </tbody></table>{page && page.totalPages > 1 && <footer className="table-footer"><span>Página <b>{page.pageNumber + 1}</b> de <b>{page.totalPages}</b></span><div><button className="pagination-button" type="button" disabled={page.pageNumber === 0 || isLoading} onClick={() => changePage(page.pageNumber - 1)}>Anterior</button><button className="pagination-button" type="button" disabled={page.pageNumber + 1 >= page.totalPages || isLoading} onClick={() => changePage(page.pageNumber + 1)}>Próxima</button></div></footer>}</div>
       </section>
       </div>

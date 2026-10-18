@@ -1,4 +1,5 @@
 import { tokenStorage } from './token.storage';
+import { notifyUnauthorized } from './unauthorized.event';
 
 const apiUrl = import.meta.env.VITE_API_URL ?? 'http://localhost:3000/api';
 
@@ -10,7 +11,10 @@ class ApiClient {
       headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}), ...init.headers },
     });
     if (!response.ok) {
-      if (response.status === 401) tokenStorage.clear();
+      if (response.status === 401) {
+        tokenStorage.clear();
+        notifyUnauthorized();
+      }
       throw new ApiError(response.status);
     }
     return response.json() as Promise<T>;

@@ -3,6 +3,7 @@ import type { PropsWithChildren } from 'react';
 import { getCurrentUser } from '../apis/auth/getCurrentUser.api';
 import { postLogin } from '../apis/auth/postLogin.api';
 import { tokenStorage } from '../clients/http/token.storage';
+import { unauthorizedEventName } from '../clients/http/unauthorized.event';
 import type { AuthenticatedUser } from '../types/auth/AuthenticatedUser.type';
 
 type AuthContextValue = { isLoading: boolean; user: AuthenticatedUser | null; signIn: (email: string, password: string) => Promise<void>; signOut: () => void };
@@ -12,7 +13,29 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const [isLoading, setIsLoading] = useState(true);
   const [user, setUser] = useState<AuthenticatedUser | null>(null);
 
-  useEffect(() => { void getCurrentUser().then((currentUser) => { setUser(currentUser); setIsLoading(false); }); }, []);
+  useEffect(() => {
+    let isMounted = true;
+    void getCurrentUser()
+      .then((currentUser) => {
+        if (isMounted) setUser(currentUser);
+      })
+      .catch(() => {
+        if (isMounted) setUser(null);
+      })
+      .finally(() => {
+        if (isMounted) setIsLoading(false);
+      });
+
+    const handleUnauthorized = () => {
+      setUser(null);
+      setIsLoading(false);
+    };
+    window.addEventListener(unauthorizedEventName, handleUnauthorized);
+    return () => {
+      isMounted = false;
+      window.removeEventListener(unauthorizedEventName, handleUnauthorized);
+    };
+  }, []);
 
   const value = useMemo<AuthContextValue>(() => ({
     isLoading,
