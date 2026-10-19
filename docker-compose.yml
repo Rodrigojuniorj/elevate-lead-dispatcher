@@ -35,9 +35,11 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+      target: build
     container_name: elevate-lead-dispatcher-database-bootstrap
     environment:
       DATABASE_URL: postgresql://elevate:elevate@postgres:5432/elevate_lead_dispatcher?schema=public
+    command: ["sh", "-c", "yarn prisma migrate deploy && yarn prisma:seed:if-empty"]
     depends_on:
       postgres:
         condition: service_healthy
